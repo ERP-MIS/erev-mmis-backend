@@ -164,3 +164,109 @@ export class AuthService {
     });
   }
 }
+
+// src/auth/rbac.service.ts
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+@Injectable()
+export class RbacService {
+  constructor(private prisma: PrismaService) {}
+
+  async getUserPermissions(userId: string, marketId?: string) {
+    const userRoles = await this.prisma.userRole.findMany({
+      where: {
+        userId,
+        OR: [
+          { marketId: null }, // Global roles
+          { marketId }, // Market-specific roles
+        ],
+      },
+      include: {
+        role: {
+          include: {
+            rolePermissions: {
+              include: {
+                permission: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const permissions = new Map();
+    
+    for (const userRole of userRoles) {
+      for (const rolePermission of userRole.role.rolePermissions) {
+        const key = `${rolePermission.permission.resource}:${rolePermission.permission.action}`;
+        permissions.set(key, {
+          ...rolePermission.permission,
+          conditions: rolePermission.conditions,
+        });
+      }
+    }
+
+    return Array.from(permissions.values());
+  }
+
+  async hasPermission(
+    userId: string, 
+    resource: string, 
+    action: string, 
+    marketId?: string
+  ): Promise<boolean> {
+    const permissions = await this.getUserPermissions(userId, marketId);
+    
+    // Check for exact permission or manage permission
+    return permissions.some(perm => 
+      (perm.resource === resource && perm.action === action) ||
+      (perm.resource === resource && perm.action === 'MANAGE') ||
+      (perm.resource === '*' && perm.action === '*')
+    );
+  }
+
+  async assignRoleToUser(userId: string, roleName: string, marketId?: string) {
+    const role = await this.prisma.role.findUnique({
+      where: { name: roleName },
+    });
+
+    if (!role) {
+      throw new Error(`Role ${roleName} not found`);
+    }
+
+    return this.prisma.userRole.create({
+      data: {
+        userId,
+        roleId: role.id,
+        marketId,
+      },
+    });
+  }
+
+  async getUsersByMarketAndRole(marketId: string, roleName: string) {
+    const role = await this.prisma.role.findUnique({
+      where: { name: roleName },
+    });
+
+    if (!role) {
+      return [];
+    }
+
+    return this.prisma.userRole.findMany({
+      where: {
+        roleId: role.id,
+        marketId,
+      },
+      include: {
+        user: {
+          include: {
+            profile: true,
+            admin: true,
+            stakeholder: true,
+          },
+        },
+      },
+    });
+  }
+}

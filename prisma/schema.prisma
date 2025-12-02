@@ -409,3 +409,137 @@ model Notification {
 @@index([kycStatus])
 @@index([invitationStatus])
 @@index([expiresAt])
+
+// prisma/schema.prisma - Updated RBAC Section
+
+enum PermissionResource {
+  USER
+  MARKET
+  SHOP
+  STALL
+  PRODUCT
+  INVENTORY
+  GATE
+  PAYMENT
+  TAX
+  REPORT
+  SETTINGS
+  KYC
+  INVITATION
+}
+
+enum PermissionAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  MANAGE
+  APPROVE
+  VERIFY
+  EXPORT
+}
+
+model Permission {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  resource  PermissionResource
+  action    PermissionAction
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isSystemRole Boolean @default(false)
+  level       Int      // Hierarchy level (1-8)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String
+  permissionId String
+  conditions   Json?    // Additional conditions for the permission
+  createdAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  userId    String
+  roleId    String
+  marketId  String?  // Scope to specific market for market-level roles
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId, marketId])
+  @@map("user_roles")
+}
+
+// Enhanced Invitation model for different types
+enum InvitationType {
+  ADMIN_ONBOARDING
+  VENDOR_KYC
+  SUPPLIER_REGISTRATION
+}
+
+model Invitation {
+  id               String           @id @default(uuid())
+  email            String
+  token            String           @unique
+  type             InvitationType
+  invitedByAdminId String?
+  vendorId         String?          // For vendor KYC invitations
+  adminLevel       AdminLevel?
+  marketId         String?          // For market-specific invitations
+  expiresAt        DateTime
+  status           InvitationStatus @default(PENDING)
+  ttl              Int?             // Time to live in hours
+  securitySettings Json?           // MFA, KYC settings, etc.
+  metadata         Json?           // Additional data like market info, role details
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  invitedByAdmin Admin?   @relation(fields: [invitedByAdminId], references: [id])
+  vendor         Vendor?  @relation(fields: [vendorId], references: [id])
+  market         Market?  @relation(fields: [marketId], references: [id])
+  
+  @@map("invitations")
+}
+
+// Add market relation to Vendor for scope
+model Vendor {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  vendorType      String?
+  businessLicenseNumber String?
+  marketId        String?  // Primary market association
+
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  market          Market?     @relation(fields: [marketId], references: [id])
+  stalls          Stall[]
+  gateIntakes     GateIntake[]
+  sales           Sale[]
+  
+  @@map("vendors")
+}
