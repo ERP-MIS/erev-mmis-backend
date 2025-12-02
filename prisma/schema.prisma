@@ -1,0 +1,411 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  UNDER_REVIEW
+}
+
+enum AdminLevel {
+  SUPER_ADMIN
+  NATIONAL_ADMIN
+  DISTRICT_ADMIN
+  CITY_ADMIN
+  MARKET_MASTER
+  PSEUDO_MARKET_MASTER
+}
+
+enum PseudoMarketRole {
+  REVENUE_COLLECTOR
+  HEALTH_INSPECTOR
+  SECURITY_ADMIN
+  GATE_COUNTER
+  STOCK_COUNTER
+  VAT_PAYMENT_COUNTER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  firstName       String
+  lastName        String
+  phone           String?
+  status          UserStatus @default(PENDING)
+  emailVerified   Boolean  @default(false)
+  lastLogin       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Profile relation
+  profile         UserProfile?
+  
+  // Role relations
+  admin           Admin?
+  stakeholder     Stakeholder?
+  
+  // Authentication relations
+  invitations     Invitation[]
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  
+  @@map("users")
+}
+
+model UserProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  address         String?
+  dateOfBirth     DateTime?
+  profileImageUrl String?
+  preferences     Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_profiles")
+}
+
+model Admin {
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  employeeId      String?     @unique
+  adminLevel      AdminLevel
+  adminSettings   Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Specific admin types
+  superAdmin      SuperAdmin?
+  nationalAdmin   NationalAdmin?
+  cityAdmin       CityAdmin?
+  marketMaster    MarketMaster?
+  pseudoMarketMaster PseudoMarketMaster?
+
+  // Relations
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdInvitations Invitation[]
+  
+  @@map("admins")
+}
+
+model SuperAdmin {
+  id              String   @id @default(uuid())
+  adminId         String   @unique
+  globalSettings  Json?
+  
+  admin           Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  @@map("super_admins")
+}
+
+model NationalAdmin {
+  id              String   @id @default(uuid())
+  adminId         String   @unique
+  authorityName   String
+  jurisdiction    String?
+  
+  admin           Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  @@map("national_admins")
+}
+
+model CityAdmin {
+  id              String   @id @default(uuid())
+  adminId         String   @unique
+  cityId          String
+  
+  admin           Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  city            City     @relation(fields: [cityId], references: [id])
+  
+  @@map("city_admins")
+}
+
+model MarketMaster {
+  id              String   @id @default(uuid())
+  adminId         String   @unique
+  marketId        String
+  
+  admin           Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  market          Market   @relation(fields: [marketId], references: [id])
+  
+  @@map("market_masters")
+}
+
+model PseudoMarketMaster {
+  id              String           @id @default(uuid())
+  adminId         String           @unique
+  marketId        String
+  role            PseudoMarketRole
+  assignedSection String?
+  
+  admin           Admin            @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  market          Market           @relation(fields: [marketId], references: [id])
+  
+  @@map("pseudo_market_masters")
+}
+
+model Stakeholder {
+  id                  String      @id @default(uuid())
+  userId              String      @unique
+  kycStatus           KycStatus   @default(PENDING)
+  kycDocuments        Json?
+  bankAccountDetails  Json?
+  businessName        String?
+  registrationNumber  String?
+  taxIdNumber         String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  // Specific stakeholder types
+  marketAuthority     MarketAuthority?
+  member              Member?
+  vendor              Vendor?
+  supplier            Supplier?
+  customer            Customer?
+
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("stakeholders")
+}
+
+model MarketAuthority {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  authorityType   String
+  jurisdiction    String?
+  
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  
+  @@map("market_authorities")
+}
+
+model Member {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  membershipNumber String? @unique
+  membershipType  String?
+  
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  shops           Shop[]
+  
+  @@map("members")
+}
+
+model Vendor {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  vendorType      String?
+  businessLicenseNumber String?
+  
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  stalls          Stall[]
+  gateIntakes     GateIntake[]
+  sales           Sale[]
+  
+  @@map("vendors")
+}
+
+model Supplier {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  supplierType    String?
+  licenseNumber   String?
+  
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  products        Product[]
+  
+  @@map("suppliers")
+}
+
+model Customer {
+  id              String   @id @default(uuid())
+  stakeholderId   String   @unique
+  loyaltyPoints   Int      @default(0)
+  customerType    String?
+  
+  stakeholder     Stakeholder @relation(fields: [stakeholderId], references: [id], onDelete: Cascade)
+  sales           Sale[]
+  
+  @@map("customers")
+}
+
+model Invitation {
+  id              String            @id @default(uuid())
+  email           String
+  token           String           @unique
+  invitedByAdminId String
+  adminLevel      AdminLevel?
+  expiresAt       DateTime
+  status          InvitationStatus @default(PENDING)
+  ttl             Int?             // Time to live in hours
+  securitySettings Json?           // MFA, KYC settings, etc.
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  invitedByAdmin  Admin            @relation(fields: [invitedByAdminId], references: [id])
+  
+  @@map("invitations")
+}
+
+// Geographical Hierarchy
+model Geolocation {
+  id              String     @id @default(uuid())
+  name            String
+  code            String     @unique
+  country         String     @default("Uganda")
+  timezone        String     @default("Africa/Kampala")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  districts       District[]
+  
+  @@map("geolocations")
+}
+
+model District {
+  id              String       @id @default(uuid())
+  geolocationId   String
+  name            String
+  code            String       @unique
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  geolocation     Geolocation  @relation(fields: [geolocationId], references: [id])
+  cities          City[]
+  
+  @@map("districts")
+}
+
+model City {
+  id              String     @id @default(uuid())
+  districtId      String
+  name            String
+  code            String     @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  district        District   @relation(fields: [districtId], references: [id])
+  markets         Market[]
+  cityAdmins      CityAdmin[]
+  
+  @@map("cities")
+}
+
+model Market {
+  id              String     @id @default(uuid())
+  cityId          String
+  name            String
+  code            String     @unique
+  address         String?
+  latitude        Float?
+  longitude       Float?
+  status          String     @default("ACTIVE")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  city            City       @relation(fields: [cityId], references: [id])
+  shops           Shop[]
+  marketMasters   MarketMaster[]
+  pseudoMarketMasters PseudoMarketMaster[]
+  gateIntakes     GateIntake[]
+  
+  @@map("markets")
+}
+
+// Supporting models (simplified for brevity)
+model Shop {
+  id              String   @id @default(uuid())
+  marketId        String
+  memberId        String
+  name            String
+  code            String   @unique
+  shopNumber      String
+  sizeSqm         Float?
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  market          Market   @relation(fields: [marketId], references: [id])
+  member          Member   @relation(fields: [memberId], references: [id])
+  stalls          Stall[]
+}
+
+model Stall {
+  id              String   @id @default(uuid())
+  shopId          String
+  vendorId        String
+  code            String   @unique
+  stallNumber     String
+  sizeSqm         Float?
+  dailyRate       Float?
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shop            Shop     @relation(fields: [shopId], references: [id])
+  vendor          Vendor   @relation(fields: [vendorId], references: [id])
+  inventoryRecords InventoryRecord[]
+  sales           Sale[]
+}
+
+model AuditLog {
+  id              String   @id @default(uuid())
+  userId          String
+  entityType      String
+  entityId        String
+  action          String
+  oldValues       Json?
+  newValues       Json?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id              String   @id @default(uuid())
+  userId          String
+  title           String
+  message         String
+  type            String
+  data            Json?
+  isRead          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  readAt          DateTime?
+
+  user            User     @relation(fields: [userId], references: [id])
+}
+
+// Add indexes for performance
+@@index([email])
+@@index([status])
+@@index([adminLevel])
+@@index([kycStatus])
+@@index([invitationStatus])
+@@index([expiresAt])
